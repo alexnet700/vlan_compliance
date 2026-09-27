@@ -5,6 +5,13 @@ collects state and calculates the full plan for one switch before showing that
 plan and requesting an explicit `yes`. After approved changes pass post-change
 verification, it copies the running configuration to startup configuration.
 
+## Development and testing
+
+This code was created with OpenAI Codex. The script was tested in a lab with
+real Cisco Catalyst 2960X and 3850 switches, using VLANs in different statuses.
+All lab test runs completed successfully. If you find a bug, please let me know
+by opening a GitHub issue.
+
 ## Install and prepare
 
 Use a virtual environment, then install the packages listed in
