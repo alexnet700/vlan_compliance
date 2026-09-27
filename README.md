@@ -133,15 +133,11 @@ script does not guess how to fix them.
 
 ## Lab testing and feedback
 
-This code was created using OpenAI Codex. The script was tested in a lab with
-real Cisco Catalyst 2960X and 3850 switches, with VLANs in different statuses.
-All lab test runs completed successfully. If you find a bug, please let me
-know by opening a GitHub issue.
+This script was developed with the assistance of OpenAI Codex and tested in a lab environment using Cisco Catalyst 2960X and 3850 switches.
 
-For your own testing, use a lab switch and try a preview you decline, an
-already-compliant VLAN list, and controlled add, rename, activate, and remove
-changes. Use a disposable VLAN for removal tests, and back up the lab switch
-configuration first.
+Feel free to use, modify, or adapt it for your own environment. If you encounter any bugs, unexpected behavior, or have suggestions for improvement, please open an issue or let me know.
+
+As always, review and test the script in a lab environment before using it in production.
 
 ## Troubleshooting connection or command errors
 
