@@ -1,0 +1,11 @@
+vlans:
+  10:
+    name: USERS
+  20:
+    name: VOICE
+  30:
+    name: SERVERS
+  40:
+    name: PRINTERS
+  100:
+    name: MANAGEMENT
