@@ -1,122 +1,155 @@
-# Cisco VLAN compliance lab
+# Cisco VLAN compliance
 
-This small Netmiko program compares Cisco IOS VLANs with `vlans.yaml`. It
-collects state and calculates the full plan for one switch before showing that
-plan and requesting an explicit `yes`. After approved changes pass post-change
-verification, it copies the running configuration to startup configuration.
+This script checks VLANs on Cisco IOS switches and compares them with the list
+in `vlans.yaml`. For each switch, it shows the changes it proposes and waits
+for your approval before making them.
 
-## Development and testing
+If you approve, the script applies the changes, checks the VLANs again, and
+copies the running configuration to startup configuration only when the checks
+pass.
 
-This code was created with OpenAI Codex. The script was tested in a lab with
-real Cisco Catalyst 2960X and 3850 switches, using VLANs in different statuses.
-All lab test runs completed successfully. If you find a bug, please let me know
-by opening a GitHub issue.
+## What the script can change
 
-## Install and prepare
+For VLANs managed by `vlans.yaml`, the script can:
 
-Use a virtual environment, then install the packages listed in
-`requirements.txt`. Copy `.env.example` to `.env` and fill in `USER_NAME` and
-`PASSWORD`. Copy `switches.example.txt` to `switches.txt`, then add your
-reachable lab switch IPs. The local `switches.txt` is ignored by Git so private
-lab addresses are not published. Edit
-`vlans.yaml` to the VLANs you want managed. Keep the credentials file private;
-`.env` is ignored by Git.
+- Add a VLAN that is in the YAML file but missing from the switch.
+- Rename a VLAN whose name differs from the YAML file.
+- Activate a desired VLAN that has the IOS status `act/lshut`.
+- Remove a VLAN from the switch if it is not listed in the YAML file.
 
-The only external packages are Netmiko, PyYAML, and python-dotenv. VLAN output
-is parsed from `show vlan brief` by a small local parser; no TextFSM package or
-template collection is required. The parser expects the standard IOS table and
-fails closed if its header or rows cannot be read confidently. It recognizes
-active, suspended, `act/unsup`, `act/lshut`, and related locally or internally
-shut statuses. A desired VLAN reported as `act/lshut` is proposed for
-activation; other non-active statuses are flagged for manual review.
+VLAN 1 and VLANs 1002–1005 are protected. The script will not add, rename, or
+remove them. If a VLAN has another non-active status, such as suspended or
+internally shut, the script flags it for manual review and does not try to
+change its status.
 
-## Incremental lab test plan
+**Important:** For all other VLANs, `vlans.yaml` is the desired list. A VLAN on
+the switch that is missing from the file will be proposed for removal. Review
+the full change list before approving, especially before removing VLANs. Start
+with one lab switch and a disposable test VLAN.
 
-Run the script from this directory with `python vlan_compliance.py`. Start with
-one IP in `switches.txt`. Configuration steps require typing the word `yes`;
-every other response, including Enter, skips the switch. It saves only when
-post-change verification passes; skipped, failed, and already-compliant
-switches are not saved.
+## Requirements
 
-1. **Load source of truth only:** In a Python prompt, run
-   `from vlan_compliance import load_source_of_truth` then
-   `print(load_source_of_truth())`. Confirm the IDs are integers and names are
-   strings. This import does not connect to a switch.
-2. **Discover one switch:** Add one lab IP, set `.env`, and run the script.
-   Review the displayed plan; answer `no`. Confirm no configuration changed.
-3. **Preview a plan:** Temporarily adjust `vlans.yaml` to create a known
-   difference. Run once and answer `no`; check ADD, RENAME, ACTIVATE, REMOVE.
-4. **Already compliant:** Set the YAML to match the test switch. Run and
-   confirm it reports compliant without prompting.
-5. **Controlled addition:** Add one unused test VLAN to YAML, then answer
-   `yes`. Check the switch and the post-change verification.
-6. **Controlled rename:** Change only that test VLAN's name in YAML; approve
-   and verify the new name.
-7. **Controlled deletion:** Remove that test VLAN from YAML while leaving it
-   present on the switch. Approve only after checking the preview, then verify
-   it is gone. Use a disposable test VLAN, never a production VLAN.
-8. **Post-change verification:** For a lab check, deliberately cause a
-   permitted command to fail or alter the VLAN after configuration and confirm
-   the script reports verification failure. Do not perform this on a production
-   switch.
-9. **Multiple switches:** Only after the single-switch cases above succeed,
-   add further lab IPs. Each switch gets its own discovery, preview, and prompt.
+- Python 3
+- SSH access to the Cisco IOS switches
+- A switch account with permission to run `show vlan brief` and configure VLANs
+- The Python packages in `requirements.txt` (Netmiko, PyYAML, and
+  python-dotenv)
 
-Tests 1-4 are read-only if you decline any preview. Keep a backup of the lab
-configuration before testing create, rename, or deletion behavior.
+## Setup
 
-## How it is organized
+Clone the repository, then move into the project directory:
 
-- `load_credentials()` reads environment variables through python-dotenv.
-- `load_switches()` reads each non-empty inventory line.
-- `load_source_of_truth()` uses `yaml.safe_load()` and validates the VLAN map.
-  YAML numeric keys become Python integers; quoted digit strings are converted
-  to integers too. The result is a dictionary such as `{10: "USERS"}`.
-- `connect_to_device()` opens an SSH session with Netmiko's `cisco_ios` type.
-- `get_current_vlans()` runs `show vlan brief` and parses each VLAN row into a
-  dictionary such as `{10: {"name": "USERS", "status": "active"}}`. It
-  raises an error for unknown output.
-- `compare_vlans()` compares dictionary keys, names, and statuses and returns four
-  independent change categories (add, rename, activate, remove), along with
-  protected VLANs and statuses needing review. It never calls Netmiko or
-  applies configuration.
-- `display_change_plan()` presents the categories. `confirm_changes()` accepts
-  only exact `yes` after trimming whitespace and ignoring letter case.
-- `apply_changes()` passes command strings to Netmiko's `send_config_set()`.
-  Adds and renames happen before activation and removals. For a locally shut
-  VLAN it sends `no shutdown vlan <id>` in global configuration mode.
-- The script collects state again and reports each managed VLAN and deletion.
-  Only if all managed VLANs pass does `save_running_config()` copy the
-  running configuration to startup configuration and check for IOS success.
+```sh
+git clone https://github.com/alexnet700/vlan_compliance.git
+cd vlan_compliance
+```
 
-The comparison uses dictionary membership to identify missing IDs, and value
-comparison to detect a name mismatch. The protected ID set is checked first:
-VLAN 1 and VLANs 1002-1005 are never added, renamed, or removed. If one of
-those IDs appears outside the source of truth, it is shown as protected/ignored.
-Desired protected IDs with a different or absent observed state are also
-reported as ignored; they cannot make the managed VLAN comparison pass or fail.
+Run these commands from the project directory:
 
-Authentication and Netmiko timeout errors are reported per switch. Discovery
-and parsing errors stop that switch before confirmation. Command and other
-operation errors are also contained to that switch so later switches continue.
-The final summary reports each switch status without displaying credentials.
+```sh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-## Before running
+On Windows, activate the environment with `.venv\Scripts\activate`.
 
-The YAML is authoritative for every non-protected VLAN, so any such VLAN not
-listed there will be proposed for removal. Check the preview carefully, use a
-disposable lab VLAN for deletion tests, and start with one switch. The program
-uses the switch's running configuration. Approved changes are copied to
-startup configuration only after successful VLAN verification. If verification
-fails, the script does not save; if saving itself fails, it reports
-`VERIFIED; SAVE FAILED` so you can check the switch before taking further action.
+Create `.env` and `switches.txt` from their example files:
 
-## If Netmiko reports that the prompt pattern was not detected
+```sh
+cp .env.example .env
+cp switches.example.txt switches.txt
+```
 
-Netmiko may have timed out while reading a configuration batch, or the switch
-may not have returned to the prompt Netmiko expected. The script allows 60
-seconds for the configuration batch. If a batch still errors, some commands
-may already have been accepted. The script attempts a fresh `show vlan brief`
-and prints the observed compliance differences, but it will not retry the
-configuration automatically. Review the switch state and the next preview
-before approving another attempt.
+On Windows, copy the files in File Explorer or use `copy` in Command Prompt.
+Then enter the switch login credentials in `.env`:
+
+```text
+USER_NAME=your_username
+PASSWORD=your_password
+```
+
+Put one switch IP address on each line of `switches.txt`. Start with one lab
+switch. These local files are ignored by Git, so credentials and lab IP
+addresses are not included in commits.
+
+Edit `vlans.yaml` to list the VLAN IDs and names the script should manage. For
+example:
+
+```yaml
+vlans:
+  10:
+    name: USERS
+  20:
+    name: VOICE
+```
+
+VLAN names may contain letters, numbers, underscores, and hyphens, and must be
+1–32 characters long.
+
+## Run the script
+
+With the virtual environment active and the three files ready, run:
+
+```sh
+python vlan_compliance.py
+```
+
+For each switch, the script reads `show vlan brief` and displays a plan with
+the proposed additions, renames, activations, and removals. Read the plan and
+check it against your intended changes.
+
+- Type `yes` to apply the displayed changes to that switch.
+- Type anything else, or press Enter, to skip that switch.
+- If the switch already matches the YAML file, no changes are needed.
+
+Each switch is handled separately and gets its own preview and approval
+prompt. Skipping one switch does not stop the script from processing the next.
+
+## After approval
+
+The script checks the switch again after configuration. It confirms that each
+managed VLAN has the expected name and is active, and that planned removals are
+gone. If verification succeeds, it copies the running configuration to
+startup configuration. If verification fails, it does not save. If the save
+fails, the script reports that VLANs were verified but the save failed; check
+the switch's startup configuration.
+
+If a configuration command fails, some earlier commands in the batch may
+already have taken effect. The script checks the current VLAN state when
+possible and does not retry automatically. Inspect the switch and the next
+change preview before approving another attempt.
+
+## VLAN output and status handling
+
+The script reads the standard IOS `show vlan brief` table. If the command
+fails, the expected table header is missing, or a VLAN row cannot be read
+reliably, discovery stops for that switch before any changes are made.
+
+The script can read active, suspended, and several locally or internally shut
+statuses. It only automatically activates a desired VLAN with status
+`act/lshut`. Other non-active statuses are reported for manual review; the
+script does not guess how to fix them.
+
+## Lab testing and feedback
+
+This code was created using OpenAI Codex. The script was tested in a lab with
+real Cisco Catalyst 2960X and 3850 switches, with VLANs in different statuses.
+All lab test runs completed successfully. If you find a bug, please let me
+know by opening a GitHub issue.
+
+For your own testing, use a lab switch and try a preview you decline, an
+already-compliant VLAN list, and controlled add, rename, activate, and remove
+changes. Use a disposable VLAN for removal tests, and back up the lab switch
+configuration first.
+
+## Troubleshooting connection or command errors
+
+- **Authentication failed:** Check `USER_NAME` and `PASSWORD` in `.env`.
+- **SSH timed out or host is unreachable:** Check the switch IP, SSH access,
+  and network reachability.
+- **Discovery failed:** Confirm the account can run `show vlan brief` and that
+  the switch returned the standard VLAN table.
+- **Netmiko did not detect the prompt:** A configuration batch may have
+  partially run. Check the switch's VLAN state, then review the next preview
+  before approving changes again.
